@@ -2,6 +2,8 @@
 
 Uses RS decoder from Phil Karn's "feclib".
 
+## Usage
+
 The program is a self-compiling polyglot, so to use it just:
 
 	bash beacon.c example.kss
@@ -12,6 +14,8 @@ To prevent warnings/errors from messing up the output, redirect stderr:
 
 It is currently designed to read binary KISS files (which include AX.25 framing) and extract beacons from them.
 It may be useful to alter it to read ASCII KISS and other formats also.
+
+## Callsign issue
 
 The qb01 beacon callsign fields are not bit-shifted, so unfortunately an AX.25-compliant TNC will have trouble decoding them.
 Instead, simply discard the AX.25 framing (first 16 bytes + last 2 bytes).
@@ -25,5 +29,16 @@ Specify environment variable "CSV" in order to export beacons as machine-readabl
 When supplying beacon data to Open Cosmos, please indicate the time (and ideally, also location) of the reception!
 
 You can supply the data via the email address on the details page [http://open-cosmos.com/se01/](http://open-cosmos.com/se01/) or via pull-requests to this repository (please use the data/ folder and if possible, binary KISS format).
+
+## Note
+
+These lines, present in two decode\_\* functions are obvious buffer overruns:
+
+	char *ax25 = kiss + 1;
+	size_t ax25_len = kiss_len;
+
+The first set of KISS data we received had a NULL byte prepended to each AX.25 packet, hence the skip.
+A byte was also lost from the end of each packet.  Hence we don't reduce the length when we offset the AX.25 pointer, instead we consume a byte of junk from after the packet (which is bad, I know).
+You will probably wish to remove the ` + 1` when you use this, unless your TNC exhibits similar behaviour.
 
  - _Mark Cowan @ Open Cosmos_
