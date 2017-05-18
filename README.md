@@ -42,3 +42,18 @@ Also, if you can provide a script to translate your data to binary KISS encapsul
 The `find_beacon_len` function introduces a possible buffer overrun bug, with the potential to overrun by up to 32 bytes.  This is solved by requiring the input data to be at least 32 bytes smaller than the buffer which it is read into.
 
  - _Mark Cowan @ Open Cosmos_
+
+# qb01 beacon description
+
+See `QB50 SE01 beacon description - Open Cosmos.pdf` for detailed information.
+
+| Parameter                  | Value                                                               |
+|----------------------------|---------------------------------------------------------------------|
+| Modulation                 | GFSK                                                                |
+| Modulation index           | 0.6667                                                              |
+| Packet format              | AX-25*, CSP                                                         |
+| Encoding                   | NRZI with stuffing / G3RUH scrambled for AX.25, RS(223,255) for CSP |
+| Carrier-Frequency          | 435.800 MHz                                                         |
+| Nominal data rate          | 9600 baud                                                           |
+| AX-25 Source Address Field | ON01SE                                                              |
+| Interval                   | 10 s (LEOP), 30 s (during routine Operations [to be commanded])     |
