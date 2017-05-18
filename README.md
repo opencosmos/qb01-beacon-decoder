@@ -6,14 +6,18 @@ Uses RS decoder from Phil Karn's "feclib".
 
 The program is a self-compiling polyglot, so to use it just:
 
-	bash beacon.c example.kss
+	bash decode.c example.kss
 
 To prevent warnings/errors from messing up the output, redirect stderr:
 
-	bash beacon.c example.kss 2>/dev/null
+	bash decode.c example.kss 2>/dev/null
 
 It is currently designed to read binary KISS files (which include AX.25 framing) and extract beacons from them.
 It may be useful to alter it to read ASCII KISS and other formats also.
+
+Data in other formats may possibly be converted to binary KISS AX.25 via some of the perl scripts in `data/`.
+
+The script `./collate.sh` converts all data in the `data/` folder, decodes it, and produces a CSV file called `beacons.csv`.
 
 ## Callsign issue
 
@@ -30,15 +34,11 @@ When supplying beacon data to Open Cosmos, please indicate the time (and ideally
 
 You can supply the data via the email address on the details page [http://open-cosmos.com/se01/](http://open-cosmos.com/se01/) or via pull-requests to this repository (please use the data/ folder and if possible, binary KISS format).
 
+If you send a pull-request, please create a new folder for your team/organisation/yourself as appropriate and put your data in there.
+Also, if you can provide a script to translate your data to binary KISS encapsulating AX.25 frames (or use one of the existing perl scripts) that would be great but it is not essential.
+
 ## Note
 
-These lines, present in two decode\_\* functions are obvious buffer overruns:
-
-	char *ax25 = kiss + 1;
-	size_t ax25_len = kiss_len;
-
-The first set of KISS data we received had a NULL byte prepended to each AX.25 packet, hence the skip.
-A byte was also lost from the end of each packet.  Hence we don't reduce the length when we offset the AX.25 pointer, instead we consume a byte of junk from after the packet (which is bad, I know).
-You will probably wish to remove the ` + 1` when you use this, unless your TNC exhibits similar behaviour.
+The `find_beacon_len` function introduces a possible buffer overrun bug, with the potential to overrun by up to 32 bytes.  This is solved by requiring the input data to be at least 32 bytes smaller than the buffer which it is read into.
 
  - _Mark Cowan @ Open Cosmos_

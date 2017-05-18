@@ -1,13 +1,14 @@
 #if 0
 set -e
-if (( $# == 0 )); then
-	echo "Syntax: bash $0 kiss-binary-dump-file"
-	exit 1
-fi
 declare -r out="$(mktemp)"
 trap "rm -f '$out'" EXIT ERR
-gcc -std=gnu11 -O2 -Wall -Wextra -Werror -o "$out" "$0"
-"$out" "$1"
+if [ "${debug:-}" ]; then
+	gcc -std=gnu11 -D_GNU_SOURCE -Og -g -Wall -Wextra -Werror -o "$out" "$0"
+	valgrind --quiet --leak-check=full --track-origins=yes "$out" "$@"
+else
+	gcc -std=gnu11 -D_GNU_SOURCE -O2 -o "$out" "$0"
+	"$out" "$@"
+fi
 exit 0
 #endif
 #include <stdint.h>
@@ -15,14 +16,24 @@ exit 0
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
+#include <string.h>
 #include <arpa/inet.h>
 
 #include "rs.c"
 
+/* Used to find start of AX.25 packet */
+#define CALLSIGN "ON01SE\0"
+
+/* You can set this to NULL to disable the beacon end-of-packet scan */
+#define BYLINE "~OPEN COSMOS~"
+#define BYLINE_LEN (strlen(BYLINE) + 1)
+
+#define RSBYTES 32
+
 #define PACKED __attribute__((__packed__))
 
 #define fail(format, ...) fprintf(stderr, "\x1b[31m%s: " format "\x1b[0m\n", __func__, ##__VA_ARGS__)
-#define warn(format, ...) fprintf(stderr, "\x1b[32m%s: " format "\x1b[0m\n", __func__, ##__VA_ARGS__)
+#define warn(format, ...) fprintf(stderr, "\x1b[33m%s: " format "\x1b[0m\n", __func__, ##__VA_ARGS__)
 #define info(format, ...) fprintf(stderr, "\x1b[36m%s: " format "\x1b[0m\n", __func__, ##__VA_ARGS__)
 
 struct PACKED wod_raw {
@@ -104,13 +115,23 @@ bool decode_kiss(const char *in, const size_t in_len, size_t *in_ptr, char *out,
 	return fend;
 }
 
-bool ax25_payload(char *ax25, size_t ax25_len, char **payload, size_t *payload_len)
+bool ax25_payload(const char *callsign, char *ax25, size_t ax25_len, char **payload, size_t *payload_len)
 {
-	if (ax25_len < 18) {
-		fail("AX.25 packet too short (%zu)", ax25_len);
+	*payload = NULL;
+	*payload_len = 0;
+	char *start = memmem(ax25, ax25_len, callsign, 7);
+	if (!start) {
+		warn("AX25 callsign not found");
+		return false;
+	}
+	size_t offset = start - ax25;
+	if (ax25_len < 18 + offset) {
+		fail("AX.25 packet too short (%zu - %zu)", ax25_len, offset);
 		*payload_len = 0;
 		return false;
 	}
+	ax25 += offset;
+	ax25_len -= offset;
 	*payload = ax25 + 16;
 	*payload_len = ax25_len - 18;
 	return true;
@@ -119,7 +140,7 @@ bool ax25_payload(char *ax25, size_t ax25_len, char **payload, size_t *payload_l
 bool decode_rs(char *buf, size_t *len)
 {
 	int errs = ccsds_rs_decode((uint8_t *) buf, NULL, 0, 255 - *len);
-	*len -= 32;
+	*len -= RSBYTES;
 	if (errs < 0 || errs > 16) {
 		fail("Reed-Solomon decoding failed, result=%d", errs);
 		return false;
@@ -132,9 +153,10 @@ bool decode_rs(char *buf, size_t *len)
 
 bool csp_payload(char *csp, size_t csp_len, char **payload, size_t *payload_len)
 {
+	*payload = NULL;
+	*payload_len = 0;
 	if (csp_len < 4) {
 		fail("CSP packet too short (%zu)", csp_len);
-		*payload_len = 0;
 		return false;
 	}
 	if (htonl(*(uint32_t *) csp) & 0x0000000f) {
@@ -145,9 +167,23 @@ bool csp_payload(char *csp, size_t csp_len, char **payload, size_t *payload_len)
 	return true;
 }
 
-void printb(const void *buf, size_t len)
+size_t find_beacon_len(const void *data, size_t len)
 {
-	printf("[");
+	if ((BYLINE) == NULL) {
+		return len;
+	}
+	const char *end = memmem(data, len, BYLINE, BYLINE_LEN);
+	if (end == NULL) {
+		return len;
+	}
+	return (end - (const char *) data) + BYLINE_LEN + RSBYTES;
+}
+
+void printb(const void *buf, size_t len, bool bracket)
+{
+	if (bracket) {
+		printf("[");
+	}
 	for (const unsigned char *it = buf, *end = buf + len; it != end; ++it) {
 		unsigned char c = *it;
 		if (c < 32 || c > 127) {
@@ -156,7 +192,9 @@ void printb(const void *buf, size_t len)
 			printf("%c", c);
 		}
 	}
-	printf("]");
+	if (bracket) {
+		printf("]");
+	}
 }
 
 void print_ax25(const void *buf, const size_t len)
@@ -165,10 +203,10 @@ void print_ax25(const void *buf, const size_t len)
 	const struct ax25 *ax = buf;
 	printf("ax25\n");
 	printf(" dest: ");
-	printb(ax->dest, sizeof(ax->dest));
+	printb(ax->dest, sizeof(ax->dest), true);
 	printf("\n");
 	printf(" source: ");
-	printb(ax->source, sizeof(ax->source));
+	printb(ax->source, sizeof(ax->source), true);
 	printf("\n");
 	printf(" control: 0x%02hhx\n", ax->ctrl);
 	printf(" pid: 0x%02hhx\n", ax->pid);
@@ -224,7 +262,7 @@ void print_beacon(const void *buf, const size_t len)
 	printf("   service_r: 0x%02hhx\n", b->service_r);
 	const size_t banner_len = len - (sizeof(struct beacon) - BANNER_MAX_LEN);
 	printf("   byline: ");
-	printb(b->byline, banner_len);
+	printb(b->byline, banner_len, true);
 	printf("\n");
 }
 
@@ -242,15 +280,11 @@ size_t decode_human(const void *data, size_t len)
 	size_t kiss_count = 0;
 	while (bar(), decode_kiss(data, len, &in_ptr, kiss, &kiss_len, sizeof(buf))) {
 		kiss_count++;
-		/* Skip werid null byte at start */
-		if (kiss_len <= 1) {
-			continue;
-		}
-		char *ax25 = kiss + 1;
+		char *ax25 = kiss;
 		size_t ax25_len = kiss_len;
 		char *csp;
 		size_t csp_len;
-		if (!ax25_payload(ax25, ax25_len, &csp, &csp_len)) {
+		if (!ax25_payload(CALLSIGN, ax25, ax25_len, &csp, &csp_len)) {
 			fail("Failed to deframe AX.25");
 			continue;
 		}
@@ -262,6 +296,7 @@ size_t decode_human(const void *data, size_t len)
 			continue;
 		}
 		print_csp(csp, csp_len);
+		data_len = find_beacon_len(data, data_len);
 		if (!decode_rs(data, &data_len)) {
 			fail("Failed to decode RS");
 			continue;
@@ -280,12 +315,24 @@ size_t decode_human(const void *data, size_t len)
 
 void print_csv_header()
 {
+	if (getenv("source")) {
+		printf("source,");
+	}
+	if (getenv("passtime")) {
+		printf("passtime,");
+	}
 	printf("time,mode,vbatt,ibatt,ibus3v3,ibus5v0,comm_temp,eps_temp,batt_temp,power,service_e,service_r,byline\n");
 }
 
 void print_csv_beacon(const void *buf, const size_t len)
 {
 	const struct beacon *b = buf;
+	if (getenv("source")) {
+		printf("%s,", getenv("source"));
+	}
+	if (getenv("passtime")) {
+		printf("%s,", getenv("passtime"));
+	}
 	const int32_t wod_epoch = 946684800LL;
 	const int32_t time = b->wod.time + wod_epoch;
 	char timebuf[40];
@@ -303,7 +350,7 @@ void print_csv_beacon(const void *buf, const size_t len)
 	printf("0x%02hhx,", b->service_e);
 	printf("0x%02hhx,", b->service_r);
 	const size_t banner_len = len - (sizeof(struct beacon) - BANNER_MAX_LEN);
-	printb(b->byline, banner_len);
+	printb(b->byline, banner_len, false);
 	printf("\n");
 }
 
@@ -314,17 +361,12 @@ size_t decode_csv(const void *data, size_t len)
 	char *kiss = buf;
 	size_t kiss_len;
 	size_t count = 0;
-	print_csv_header();
 	while (decode_kiss(data, len, &in_ptr, kiss, &kiss_len, sizeof(buf))) {
-		/* Skip werid null byte at start */
-		if (kiss_len <= 1) {
-			continue;
-		}
-		char *ax25 = kiss + 1;
+		char *ax25 = kiss;
 		size_t ax25_len = kiss_len;
 		char *csp;
 		size_t csp_len;
-		if (!ax25_payload(ax25, ax25_len, &csp, &csp_len)) {
+		if (!ax25_payload(CALLSIGN, ax25, ax25_len, &csp, &csp_len)) {
 			fail("Failed to deframe AX.25");
 			continue;
 		}
@@ -334,6 +376,7 @@ size_t decode_csv(const void *data, size_t len)
 			fail("Failed to deframe CSP");
 			continue;
 		}
+		data_len = find_beacon_len(data, data_len);
 		if (!decode_rs(data, &data_len)) {
 			fail("Failed to decode RS");
 			continue;
@@ -352,11 +395,15 @@ int main(int argc, char *argv[])
 {
 	const bool csv = getenv("CSV");
 	if (argc != 2) {
+		if (csv) {
+			print_csv_header();
+			return 0;
+		}
 		fail("Invalid arugments (filename expected)");
 		return 1;
 	}
 	const char *kiss = argv[1];
-	char buf[4000];
+	char buf[1 << 20];
 	FILE *f = fopen(kiss, "r");
 	if (!f) {
 		fail("Failed to open file '%s'", kiss);
@@ -364,6 +411,10 @@ int main(int argc, char *argv[])
 	}
 	size_t len = fread(buf, 1, sizeof(buf), f);
 	fclose(f);
+	if (len + RSBYTES >= sizeof(buf)) {
+		fail("Too much data");
+		return 3;
+	}
 	if (csv) {
 		if (!decode_csv(buf, len)) {
 			fail("Failed to decode");
