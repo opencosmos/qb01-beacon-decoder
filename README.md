@@ -24,6 +24,6 @@ Specify environment variable "CSV" in order to export beacons as machine-readabl
 
 When supplying beacon data to Open Cosmos, please indicate the time (and ideally, also location) of the reception!
 
-You can supply the data via the email address on [http://open-cosmos.com/se01/](http://open-cosmos.com/se01/) or via pull-requests to this repository (please use the data/ folder and if possible, binary KISS format).
+You can supply the data via the email address on the details page [http://open-cosmos.com/se01/](http://open-cosmos.com/se01/) or via pull-requests to this repository (please use the data/ folder and if possible, binary KISS format).
 
  - _Mark Cowan @ Open Cosmos_
