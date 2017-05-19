@@ -57,3 +57,8 @@ See `QB50 SE01 beacon description - Open Cosmos.pdf` for detailed information.
 | Nominal data rate          | 9600 baud                                                           |
 | AX-25 Source Address Field | ON01SE                                                              |
 | Interval                   | 10 s (LEOP), 30 s (during routine Operations [to be commanded])     |
+
+# TLE
+
+* Preliminary NSSDC ID: `1998-067LQ`
+* Preliminary NORAD catalog number: `42707`
