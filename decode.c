@@ -242,8 +242,8 @@ size_t print_ts(const time_t ts, char *buf, int max_len)
 void print_beacon(const void *buf, const size_t len)
 {
 	const struct beacon *b = buf;
-	const int32_t wod_epoch = 946684800LL;
-	const int32_t time = b->wod.time + wod_epoch;
+	const int64_t wod_epoch = 946684800LL;
+	const int64_t time = wod_epoch + b->wod.time;
 	char timebuf[40];
 	print_ts(time, timebuf, sizeof(timebuf));
 	printf("  beacon\n");
