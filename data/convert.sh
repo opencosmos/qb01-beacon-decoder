@@ -26,6 +26,7 @@ function run_decoder {
 
 convert aalto txt ./ax25a2kissb.pl
 convert tartu dmp ./kissa2kissb.pl
+convert tartu kss cat
 convert japan log ./unax25a2kissb.pl
 
 set +e
