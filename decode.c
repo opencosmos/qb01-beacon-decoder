@@ -1,16 +1,3 @@
-#if 0
-set -e
-declare -r out="$(mktemp)"
-trap "rm -f '$out'" EXIT ERR
-if [ "${debug:-}" ]; then
-	gcc -std=gnu11 -D_GNU_SOURCE -Og -g -Wall -Wextra -Werror -o "$out" "$0"
-	valgrind --quiet --leak-check=full --track-origins=yes "$out" "$@"
-else
-	gcc -std=gnu11 -D_GNU_SOURCE -O2 -o "$out" "$0"
-	"$out" "$@"
-fi
-exit 0
-#endif
 #include <stdint.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -70,6 +57,8 @@ struct PACKED ax25 {
 	uint8_t pid;
 	struct csp csp;
 };
+
+bool raw;
 
 #define KISS_FEND 0xC0
 #define KISS_FESC 0xDB
@@ -324,17 +313,34 @@ void print_csv_header()
 	printf("time,mode,vbatt,ibatt,ibus3v3,ibus5v0,comm_temp,eps_temp,batt_temp,power,service_e,service_r,byline\n");
 }
 
+const char *optenv(const char *name)
+{
+	const char *value = getenv(name);
+	return value ? value : "";
+}
+
+size_t calc_banner_len(const char *banner, size_t len)
+{
+	while (len > 0 && banner[len - 1] == 0) {
+		len--;
+	}
+	return len;
+}
+
 void print_csv_beacon(const void *buf, const size_t len)
 {
 	const struct beacon *b = buf;
-	if (getenv("source")) {
-		printf("%s,", getenv("source"));
+	printf("%s,", optenv("source"));
+	if (raw) {
+		int64_t t = atoll(optenv("passtime"));
+		char timebuf[40];
+		print_ts(t, timebuf, sizeof(timebuf));
+		printf("%s,", timebuf);
+	} else {
+		printf("%s,", optenv("passtime"));
 	}
-	if (getenv("passtime")) {
-		printf("%s,", getenv("passtime"));
-	}
-	const int32_t wod_epoch = 946684800LL;
-	const int32_t time = b->wod.time + wod_epoch;
+	const int64_t wod_epoch = 946684800LL;
+	const int64_t time = b->wod.time + wod_epoch;
 	char timebuf[40];
 	print_ts(time, timebuf, sizeof(timebuf));
 	printf("%s,", timebuf);
@@ -349,7 +355,8 @@ void print_csv_beacon(const void *buf, const size_t len)
 	printf("0x%02hhx,", b->power);
 	printf("0x%02hhx,", b->service_e);
 	printf("0x%02hhx,", b->service_r);
-	const size_t banner_len = len - (sizeof(struct beacon) - BANNER_MAX_LEN);
+	size_t banner_len = len - (sizeof(struct beacon) - BANNER_MAX_LEN);
+	banner_len = calc_banner_len(b->byline, banner_len);
 	printb(b->byline, banner_len, false);
 	printf("\n");
 }
@@ -393,7 +400,8 @@ size_t decode_csv(const void *data, size_t len)
 
 int main(int argc, char *argv[])
 {
-	const bool csv = getenv("CSV");
+	raw = !!getenv("raw");
+	const bool csv = !!getenv("csv");
 	if (argc != 2) {
 		if (csv) {
 			print_csv_header();
@@ -415,15 +423,27 @@ int main(int argc, char *argv[])
 		fail("Too much data");
 		return 3;
 	}
-	if (csv) {
-		if (!decode_csv(buf, len)) {
-			fail("Failed to decode");
-			return 3;
+	if (raw) {
+		if (!validate_beacon(buf, len)) {
+			fail("Failed to validate beacon");
+			return 4;
+		}
+		if (csv) {
+			print_csv_beacon(buf, len);
+		} else {
+			print_beacon(buf, len);
 		}
 	} else {
-		if (!decode_human(buf, len)) {
-			fail("Failed to decode");
-			return 3;
+		if (csv) {
+			if (!decode_csv(buf, len)) {
+				fail("Failed to decode");
+				return 4;
+			}
+		} else {
+			if (!decode_human(buf, len)) {
+				fail("Failed to decode");
+				return 4;
+			}
 		}
 	}
 	return 0;

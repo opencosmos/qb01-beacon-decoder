@@ -1,2 +1,4 @@
 tags
 .*.sw?
+decode
+decode.debug

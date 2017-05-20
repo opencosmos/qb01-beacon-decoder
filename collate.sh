@@ -1,5 +1,12 @@
 #!/bin/bash
 
-set -e
+set -euo pipefail
 
-CSV=y ./data/convert.sh 2>/dev/null 1>beacons.csv
+trap 'echo "Collate failed" >&2' ERR
+
+make
+
+cd "$(dirname "$0")"
+
+./data/convert.sh
+csv=y ./data/decode.sh >beacons.csv
