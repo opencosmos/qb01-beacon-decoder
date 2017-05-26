@@ -64,5 +64,5 @@ See `QB50 SE01 beacon description - Open Cosmos.pdf` for detailed information.
 
 # TLE
 
-* Preliminary NSSDC ID: `1998-067LQ`
-* Preliminary NORAD catalog number: `42707`
+* NSSDC ID: `1996-067LR`
+* NORAD catalog number: `42708`
