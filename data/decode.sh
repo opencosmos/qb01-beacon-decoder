@@ -17,7 +17,11 @@ fi
 
 for file in "$out"/*.kss; do
 (
-	declare -ra info=( x $(echo "$(basename "$file")" | perl -ne 'print if s{^(\w+)-(\d\d)(\d\d)(\d\d\d\d)_(\d\d)(\d\d)(\d\d)?\.kss$}{$1 $4-$3-$2T$5:$6:00Z}g') )
+	if [[ $file =~ tartu-ES5TO ]]; then
+		declare -ra info=( x tartu )
+	else
+		declare -ra info=( x $(echo "$(basename "$file")" | perl -ne 'print if s{^(\w+)-(\d\d)(\d\d)(\d\d\d\d)_(\d\d)(\d\d)(\d\d)?\.kss$}{$1 $4-$3-$2T$5:$6:00Z}g') )
+	fi
 	echo -e "\e[1;36m${file#$out/}\e[0m" >&2
 	source="${info[1]:-?}" passtime="${info[2]:-?}" ../decode "$file"
 ) || true

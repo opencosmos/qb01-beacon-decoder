@@ -8,6 +8,11 @@
 
 #include "rs.c"
 
+/*
+ * To inject ground time before packet in KISS stream:
+ *   0xDB, 0xBD, <time string>, 0x00
+ */
+
 /* Used to find start of AX.25 packet */
 #define CALLSIGN "ON01SE\0"
 
@@ -22,6 +27,8 @@
 #define fail(format, ...) fprintf(stderr, "\x1b[31m%s: " format "\x1b[0m\n", __func__, ##__VA_ARGS__)
 #define warn(format, ...) fprintf(stderr, "\x1b[33m%s: " format "\x1b[0m\n", __func__, ##__VA_ARGS__)
 #define info(format, ...) fprintf(stderr, "\x1b[36m%s: " format "\x1b[0m\n", __func__, ##__VA_ARGS__)
+
+typedef char passtime_t[30];
 
 struct PACKED wod_raw {
 	uint32_t time;
@@ -64,11 +71,13 @@ bool raw;
 #define KISS_FESC 0xDB
 #define KISS_TFEND 0xDC
 #define KISS_TFESC 0xDD
-bool decode_kiss(const char *in, const size_t in_len, size_t *in_ptr, char *out, size_t *out_len, size_t out_capacity)
+#define MARK_GSTIME 0xBD
+bool decode_kiss(const char *in, const size_t in_len, size_t *in_ptr, char *out, size_t *out_len, size_t out_capacity, passtime_t *pt)
 {
 	bool fend = false;
 	bool esc = false;
 	*out_len = 0;
+	(*pt)[0] = 0;
 	for (; *in_ptr < in_len; ++*in_ptr) {
 		unsigned char c = in[*in_ptr];
 		if (c == KISS_FEND && !fend) {
@@ -80,8 +89,25 @@ bool decode_kiss(const char *in, const size_t in_len, size_t *in_ptr, char *out,
 				c = KISS_FEND;
 			} else if (c == KISS_TFESC) {
 				c = KISS_FESC;
+			} else if (c == MARK_GSTIME) {
+				size_t i;
+				for (i = 0; i < sizeof(passtime_t) - 1; i++) {
+					++*in_ptr;
+					if (*in_ptr == in_len) {
+						i = 0;
+						break;
+					}
+					char x = in[*in_ptr];
+					(*pt)[i] = x;
+					if (x == 0) {
+						break;
+					}
+				}
+				(*pt)[i] = 0;
+				esc = false;
+				continue;
 			} else {
-				fail("Invalid KISS escape code");
+				fail("Invalid KISS escape code: 0x%02x 0x%02hhx", KISS_FESC, c);
 				return false;
 			}
 		} else if (c == KISS_FESC) {
@@ -267,7 +293,8 @@ size_t decode_human(const void *data, size_t len)
 	char *kiss = buf;
 	size_t kiss_len;
 	size_t kiss_count = 0;
-	while (bar(), decode_kiss(data, len, &in_ptr, kiss, &kiss_len, sizeof(buf))) {
+	passtime_t pt;
+	while (bar(), decode_kiss(data, len, &in_ptr, kiss, &kiss_len, sizeof(buf), &pt)) {
 		kiss_count++;
 		char *ax25 = kiss;
 		size_t ax25_len = kiss_len;
@@ -327,11 +354,13 @@ size_t calc_banner_len(const char *banner, size_t len)
 	return len;
 }
 
-void print_csv_beacon(const void *buf, const size_t len)
+void print_csv_beacon(const void *buf, const size_t len, const passtime_t *passtime)
 {
 	const struct beacon *b = buf;
 	printf("%s,", optenv("source"));
-	if (raw) {
+	if (passtime && (*passtime)[0]) {
+		printf("%s,", *passtime);
+	} else if (raw) {
 		int64_t t = atoll(optenv("passtime"));
 		char timebuf[40];
 		print_ts(t, timebuf, sizeof(timebuf));
@@ -368,7 +397,8 @@ size_t decode_csv(const void *data, size_t len)
 	char *kiss = buf;
 	size_t kiss_len;
 	size_t count = 0;
-	while (decode_kiss(data, len, &in_ptr, kiss, &kiss_len, sizeof(buf))) {
+	passtime_t pt;
+	while (decode_kiss(data, len, &in_ptr, kiss, &kiss_len, sizeof(buf), &pt)) {
 		char *ax25 = kiss;
 		size_t ax25_len = kiss_len;
 		char *csp;
@@ -392,7 +422,7 @@ size_t decode_csv(const void *data, size_t len)
 			fail("Failed to validate beacon");
 			continue;
 		}
-		print_csv_beacon(data, data_len);
+		print_csv_beacon(data, data_len, &pt);
 		count++;
 	}
 	return count;
@@ -429,7 +459,7 @@ int main(int argc, char *argv[])
 			return 4;
 		}
 		if (csv) {
-			print_csv_beacon(buf, len);
+			print_csv_beacon(buf, len, NULL);
 		} else {
 			print_beacon(buf, len);
 		}
