@@ -194,14 +194,14 @@ size_t find_beacon_len(const void *data, size_t len)
 	return (end - (const char *) data) + BYLINE_LEN + RSBYTES;
 }
 
-void printb(const void *buf, size_t len, bool bracket)
+void printb(const void *buf, size_t len, bool bracket, bool noquote)
 {
 	if (bracket) {
 		printf("[");
 	}
 	for (const unsigned char *it = buf, *end = buf + len; it != end; ++it) {
 		unsigned char c = *it;
-		if (c < 32 || c > 127) {
+		if (c < 32 || c > 127 || (noquote && c == '"')) {
 			printf(".");
 		} else {
 			printf("%c", c);
@@ -218,10 +218,10 @@ void print_ax25(const void *buf, const size_t len)
 	const struct ax25 *ax = buf;
 	printf("ax25\n");
 	printf(" dest: ");
-	printb(ax->dest, sizeof(ax->dest), true);
+	printb(ax->dest, sizeof(ax->dest), true, false);
 	printf("\n");
 	printf(" source: ");
-	printb(ax->source, sizeof(ax->source), true);
+	printb(ax->source, sizeof(ax->source), true, false);
 	printf("\n");
 	printf(" control: 0x%02hhx\n", ax->ctrl);
 	printf(" pid: 0x%02hhx\n", ax->pid);
@@ -277,7 +277,7 @@ void print_beacon(const void *buf, const size_t len)
 	printf("   service_r: 0x%02hhx\n", b->service_r);
 	const size_t banner_len = len - (sizeof(struct beacon) - BANNER_MAX_LEN);
 	printf("   byline: ");
-	printb(b->byline, banner_len, true);
+	printb(b->byline, banner_len, true, false);
 	printf("\n");
 }
 
@@ -386,7 +386,9 @@ void print_csv_beacon(const void *buf, const size_t len, const passtime_t *passt
 	printf("0x%02hhx,", b->service_r);
 	size_t banner_len = len - (sizeof(struct beacon) - BANNER_MAX_LEN);
 	banner_len = calc_banner_len(b->byline, banner_len);
-	printb(b->byline, banner_len, false);
+	printf("\"");
+	printb(b->byline, banner_len, false, true);
+	printf("\"");
 	printf("\n");
 }
 
