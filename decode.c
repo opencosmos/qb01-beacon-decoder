@@ -182,6 +182,16 @@ bool csp_payload(char *csp, size_t csp_len, char **payload, size_t *payload_len)
 	return true;
 }
 
+bool is_beacon(char *csp, size_t csp_len)
+{
+	if (csp_len < 4) {
+		return false;
+	}
+	uint32_t hdr = htonl(*(uint32_t *) csp) & 0x3fffc000U;
+	fprintf(stderr, " -- 0x%08x -- \n", hdr);
+	return hdr == 0x02a2c000U || hdr == 0;
+}
+
 size_t find_beacon_len(const void *data, size_t len)
 {
 	if ((BYLINE) == NULL) {
@@ -307,6 +317,10 @@ size_t decode_human(const void *data, size_t len)
 		print_ax25(ax25, ax25_len);
 		char *data;
 		size_t data_len;
+		if (!is_beacon(csp, csp_len)) {
+			fail("Frame is not a beacon");
+			continue;
+		}
 		if (!csp_payload(csp, csp_len, &data, &data_len)) {
 			fail("Failed to deframe CSP");
 			continue;
@@ -411,6 +425,10 @@ size_t decode_csv(const void *data, size_t len)
 		}
 		char *data;
 		size_t data_len;
+		if (!is_beacon(csp, csp_len)) {
+			fail("Frame is not a beacon");
+			continue;
+		}
 		if (!csp_payload(csp, csp_len, &data, &data_len)) {
 			fail("Failed to deframe CSP");
 			continue;
